@@ -37,10 +37,10 @@ class Cortado < Formula
         cortado setup
 
       It writes the stable path #{opt_libexec}/cortado.sh to statusLine in
-      ~/.claude/settings.json, so `brew upgrade cortado` never breaks it. Your
-      settings in your Claude config directory (~/.claude
-      by default) are kept across upgrades. Restart Claude Code
-      afterwards, and run `cortado doctor` to check the install.
+      ~/.claude/settings.json, so `brew upgrade cortado` never breaks it.
+      Your settings in your Claude config directory (~/.claude by default)
+      are kept across upgrades. Restart Claude Code afterwards, and run
+      `cortado doctor` to check the install.
 
       Update with `brew upgrade cortado`. Before `brew uninstall cortado`, run
       `cortado uninstall` to restore your previous statusLine.
