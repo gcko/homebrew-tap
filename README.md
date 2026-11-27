@@ -22,7 +22,7 @@ brew update
 brew upgrade cortado
 ```
 
-Your settings survive upgrades. Cortado keeps them in `~/.claude` (`cortado.conf`, `settings.json`, the cache), outside the Homebrew keg, and Homebrew only replaces the program files. Restart Claude Code to run the new version.
+Your settings survive upgrades. Cortado keeps them in your Claude config directory (`~/.claude`, or `$CLAUDE_CONFIG_DIR` if you set it): `cortado.conf`, `settings.json` and the cache, outside the Homebrew keg, and Homebrew only replaces the program files. Restart Claude Code to run the new version.
 
 `cortado update` does nothing on a Homebrew install except tell you to run `brew upgrade cortado`.
 

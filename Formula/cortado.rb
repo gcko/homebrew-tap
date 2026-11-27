@@ -23,6 +23,11 @@ class Cortado < Formula
     # cortado.sh follows symlinks to find modules/ and lib/ (Cortado 2.1.0), so
     # a link works where a wrapper script used to be needed.
     bin.install_symlink libexec/"cortado.sh" => "cortado"
+
+    # Cortado refuses to read a packaged cortado.conf whose directory others
+    # can write. Homebrew on Linux installs with a group-writable umask, so
+    # take group and world write off everything the keg holds.
+    chmod_R "go-w", libexec
   end
 
   def caveats
@@ -33,7 +38,8 @@ class Cortado < Formula
 
       It writes the stable path #{opt_libexec}/cortado.sh to statusLine in
       ~/.claude/settings.json, so `brew upgrade cortado` never breaks it. Your
-      settings in ~/.claude are kept across upgrades. Restart Claude Code
+      settings in your Claude config directory (~/.claude
+      by default) are kept across upgrades. Restart Claude Code
       afterwards, and run `cortado doctor` to check the install.
 
       Update with `brew upgrade cortado`. Before `brew uninstall cortado`, run
@@ -58,7 +64,11 @@ class Cortado < Formula
       {"workspace":{"current_dir":"#{testpath}"},"model":{"display_name":"Formula Test"},
        "context_window":{"context_window_size":200000,"current_usage":{"input_tokens":10000}}}
     JSON
-    assert_match "Formula Test", pipe_output(bin/"cortado", payload)
+    line = pipe_output(bin/"cortado", payload)
+    assert_match "Formula Test", line
+    # A refused or partly read packaged config would put a notice first.
+    refute_match "Config refused", line
+    refute_match "Config partly read", line
 
     # setup records the stable opt path, not the versioned Cellar path.
     system bin/"cortado", "setup"
