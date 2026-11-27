@@ -1,0 +1,53 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  formula:
+    name: formula (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      # On a tap repository this installs Homebrew if the runner has none,
+      # checks this commit out into the workspace and taps it as gcko/tap, so
+      # no separate checkout step is needed.
+      - name: Set up Homebrew and tap this checkout
+        uses: Homebrew/actions/setup-homebrew@61b401267256bb9c047d6d1481b176d5772a0ba7 # 2026.11.23.1
+
+      - name: Install from source
+        run: brew install --build-from-source gcko/tap/cortado
+
+      - name: Run the formula test
+        run: brew test gcko/tap/cortado
+
+      - name: Audit the formula
+        run: brew audit --strict --online gcko/tap/cortado
+
+      - name: Style the tap
+        run: brew style gcko/tap
+
+      # The formula test runs inside Homebrew's sandbox. This runs the command
+      # as a user would find it on the PATH.
+      - name: Run the installed command
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+        run: |
+          command -v cortado
+          cortado version
+          cortado setup
+          cortado doctor
