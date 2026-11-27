@@ -1,0 +1,196 @@
+name: bump
+
+# Watches gcko/Cortado for a new release and opens a pull request that bumps
+# Formula/cortado.rb. It uses only the workflow's own GITHUB_TOKEN: no personal
+# access token and no secret.
+#
+# One repository setting is required: Settings > Actions > General > Workflow
+# permissions > "Allow GitHub Actions to create and approve pull requests".
+#
+# A pull request opened with GITHUB_TOKEN does not start the `tests` workflow,
+# so the `verify` job below runs the same install, test, audit and style steps
+# before anything is pushed.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run every check but push nothing and open no pull request
+        type: boolean
+        default: false
+      version:
+        description: "Dry run only: verify this released X.Y.Z instead of the latest release"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bump
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: check for a new release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      needed: ${{ steps.check.outputs.needed }}
+      version: ${{ steps.check.outputs.version }}
+      sha256: ${{ steps.check.outputs.sha256 }}
+    steps:
+      - name: Check out the tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compare the latest release with the formula
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          VERSION_OVERRIDE: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          script=.github/scripts/bump-formula.sh
+
+          if [ -n "${VERSION_OVERRIDE:-}" ]; then
+            # A test run: any released X.Y.Z, never a real bump.
+            [ "${DRY_RUN:-}" = "true" ] || { echo "::error::version is only honored with dry_run"; exit 1; }
+            latest="$VERSION_OVERRIDE"
+            bash "$script" valid-version "$latest"
+          else
+            gh api repos/gcko/Cortado/releases/latest >"$RUNNER_TEMP/release.json"
+            latest="$(bash "$script" release-version "$RUNNER_TEMP/release.json")"
+            current="$(bash "$script" formula-version Formula/cortado.rb)"
+            if ! bash "$script" newer "$latest" "$current"; then
+              echo "Formula is at $current and the latest release is $latest: nothing to do."
+              echo "needed=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+            open="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+              --head "bump/cortado-$latest" --json number --jq 'length')"
+            if [ "$open" != "0" ]; then
+              echo "A bump pull request for $latest is already open: nothing to do."
+              echo "needed=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          sha256="$(bash "$script" checksum "$latest")"
+          echo "Bumping to $latest ($sha256)."
+          {
+            echo "needed=true"
+            echo "version=$latest"
+            echo "sha256=$sha256"
+          } >>"$GITHUB_OUTPUT"
+
+  verify:
+    name: verify (${{ matrix.os }})
+    needs: check
+    if: needs.check.outputs.needed == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - name: Set up Homebrew and tap this checkout
+        uses: Homebrew/actions/setup-homebrew@61b401267256bb9c047d6d1481b176d5772a0ba7 # 2026.11.23.1
+
+      - name: Bump the formula
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          SHA256: ${{ needs.check.outputs.sha256 }}
+        run: |
+          bash .github/scripts/bump-formula.sh rewrite Formula/cortado.rb "$VERSION" "$SHA256"
+          git diff -- Formula/cortado.rb
+
+      - name: Install from source
+        run: brew install --build-from-source gcko/tap/cortado
+
+      - name: Run the formula test
+        run: brew test gcko/tap/cortado
+
+      - name: Audit the formula
+        run: brew audit --strict --online gcko/tap/cortado
+
+      - name: Style the tap
+        run: brew style gcko/tap
+
+      - name: Run the installed command
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+        run: |
+          command -v cortado
+          cortado version
+          cortado setup
+          cortado doctor
+
+  pull-request:
+    name: open the pull request
+    needs: [check, verify]
+    if: >-
+      needs.check.outputs.needed == 'true'
+      && github.ref_name == github.event.repository.default_branch
+      && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out the tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Push the bump branch and open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          SHA256: ${{ needs.check.outputs.sha256 }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          script=.github/scripts/bump-formula.sh
+
+          # Both values came from the check job; the script validates them again.
+          bash "$script" rewrite Formula/cortado.rb "$VERSION" "$SHA256"
+          branch="bump/cortado-$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$branch"
+          git add Formula/cortado.rb
+          git commit --message "cortado $VERSION"
+          # The branch name is this workflow's own. A leftover from an earlier
+          # failed run is replaced, not merged.
+          git push --force origin "refs/heads/$branch:refs/heads/$branch"
+
+          open="$(gh pr list --state open --head "$branch" --json number --jq 'length')"
+          if [ "$open" != "0" ]; then
+            echo "A pull request for $branch is already open."
+            exit 0
+          fi
+
+          body="$RUNNER_TEMP/body.md"
+          {
+            echo "Bumps Cortado to [v$VERSION](https://github.com/gcko/Cortado/releases/tag/v$VERSION)."
+            echo
+            echo "- url: https://github.com/gcko/Cortado/archive/refs/tags/v$VERSION.tar.gz"
+            echo "- sha256: \`$SHA256\`"
+            echo
+            echo "Opened by the bump workflow. It ran \`brew install --build-from-source\`, \`brew test\`,"
+            echo "\`brew audit --strict --online\` and \`brew style\` on macOS and Linux before pushing"
+            echo "this branch."
+          } >"$body"
+          gh pr create --base "$BASE" --head "$branch" \
+            --title "cortado $VERSION" --body-file "$body"
