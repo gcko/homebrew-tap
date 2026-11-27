@@ -3,8 +3,8 @@
 class Cortado < Formula
   desc "Modular shell statusline for Claude Code CLI"
   homepage "https://github.com/gcko/Cortado"
-  url "https://github.com/gcko/Cortado/archive/refs/tags/v2.1.0.tar.gz"
-  sha256 "76f742face17edd47edcc0743dcdd51fc25ed5b3718c450da0d8e592a35f69b4"
+  url "https://github.com/gcko/Cortado/archive/refs/tags/v2.2.0.tar.gz"
+  sha256 "dc9da2269593831c1dcc57c5918d8b91105ea53b24906ca2a883e71c29023c5e"
   license "Apache-2.0"
 
   livecheck do
