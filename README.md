@@ -38,3 +38,5 @@ brew uninstall cortado
 ## Development
 
 Pull requests run `brew install --build-from-source`, `brew test`, `brew audit --strict --online` and `brew style` on macOS and Linux (`.github/workflows/tests.yml`).
+
+A daily workflow (`.github/workflows/bump.yml`) watches the latest Cortado release and opens a pull request that bumps the formula's `url` and `sha256`. It runs the same install, test, audit and style steps before it pushes, so a bump pull request arrives already verified. It needs the repository setting "Allow GitHub Actions to create and approve pull requests", and run it by hand with "Run workflow" (tick `dry_run` to push nothing).
